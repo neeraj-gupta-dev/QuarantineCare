@@ -15,11 +15,15 @@ import {
   RefreshCw,
   FastForward,
   Sparkles,
+  AlertTriangle,
 } from 'lucide-react';
 
 export const NursePage: React.FC = () => {
   const { formatTemp, isFever } = useUnit();
   const queryClient = useQueryClient();
+
+  // 6 PM End of day check
+  const isPast6PM = new Date().getHours() >= 18;
 
   // Selected patient for the Record Temperature modal
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
@@ -154,6 +158,31 @@ export const NursePage: React.FC = () => {
             </button>
           </div>
         </div>
+
+        {/* 6 PM End-of-Day Alert Banner */}
+        {isPast6PM && pendingToday > 0 && (
+          <div
+            id="end-of-day-nurse-banner"
+            className="p-4 rounded-2xl bg-amber-50 border border-amber-300 text-amber-900 shadow-xs flex items-start gap-3 animate-in fade-in duration-200"
+          >
+            <div className="w-9 h-9 rounded-xl bg-amber-200 text-amber-800 flex items-center justify-center shrink-0 mt-0.5">
+              <AlertTriangle className="w-5 h-5 text-amber-700" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-extrabold text-sm text-amber-900">
+                  End-of-Day Round Alert (Past 6:00 PM)
+                </h3>
+                <span className="text-[10px] font-black uppercase tracking-wider bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full">
+                  Action Required
+                </span>
+              </div>
+              <p className="text-xs text-amber-800 font-medium mt-0.5">
+                Shift change approaching: <strong>{pendingToday} patients</strong> remain unmeasured for today's temperature round. Please record all patient temperatures before the evening shift turnover.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Round Progress Summary Card */}
         <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-xs">

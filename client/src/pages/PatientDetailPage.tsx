@@ -21,6 +21,7 @@ import {
   Calendar,
   Loader2,
   FileCheck,
+  Clock,
 } from 'lucide-react';
 
 export const PatientDetailPage: React.FC = () => {
@@ -123,14 +124,26 @@ export const PatientDetailPage: React.FC = () => {
 
           {isActive && (user?.role === 'doctor' || user?.role === 'admin') && (
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => setIsVisitModalOpen(true)}
-                id="record-doctor-visit-btn"
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-98 transition shadow-xs cursor-pointer"
-              >
-                <Stethoscope className="w-4 h-4" />
-                <span>Record Visit</span>
-              </button>
+              {!patient.todayTempDone ? (
+                <button
+                  disabled
+                  title="Waiting for nurse's temperature reading"
+                  id="record-doctor-visit-btn"
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-slate-400 bg-slate-100 border border-slate-200 cursor-not-allowed"
+                >
+                  <Clock className="w-4 h-4 text-amber-500" />
+                  <span>Waiting for nurse's temperature reading</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => setIsVisitModalOpen(true)}
+                  id="record-doctor-visit-btn"
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-98 transition shadow-xs cursor-pointer"
+                >
+                  <Stethoscope className="w-4 h-4" />
+                  <span>{patient.todayDoctorVisited ? 'Append Follow-up Note' : 'Record Visit'}</span>
+                </button>
+              )}
 
               <button
                 onClick={() => setIsDeceasedModalOpen(true)}
@@ -139,6 +152,12 @@ export const PatientDetailPage: React.FC = () => {
               >
                 <span>Mark Deceased</span>
               </button>
+            </div>
+          )}
+
+          {!isActive && (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 text-slate-600 border border-slate-200">
+              <span>🔒 Record Closed (Read-Only)</span>
             </div>
           )}
         </div>

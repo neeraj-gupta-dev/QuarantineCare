@@ -4,7 +4,16 @@ import type { Patient } from '../types';
 import { getPatientDetailApi, recordTemperatureApi } from '../services/api';
 import { useUnit } from '../context/UnitContext';
 import { Sparkline } from './Sparkline';
-import { X, Thermometer, Clock, AlertTriangle, CheckCircle2, Flame, Loader2 } from 'lucide-react';
+import {
+  X,
+  Thermometer,
+  Clock,
+  AlertTriangle,
+  CheckCircle2,
+  Flame,
+  Loader2,
+  AlertOctagon
+} from 'lucide-react';
 
 interface RecordTempModalProps {
   patient: Patient;
@@ -27,6 +36,7 @@ export const RecordTempModal: React.FC<RecordTempModalProps> = ({ patient, onClo
   const [inputValue, setInputValue] = useState<string>(defaultVal);
   const isCorrection = patient.todayTempDone;
   const [correctionReason, setCorrectionReason] = useState<string>('');
+  const [confirmUnusualChange, setConfirmUnusualChange] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Current formatted timestamp
@@ -45,16 +55,45 @@ export const RecordTempModal: React.FC<RecordTempModalProps> = ({ patient, onClo
   const valueInF = isValidNumber ? fromDisplayValue(numericVal) : 98.6;
   const willBeFever = isValidNumber && isFever(valueInF);
 
+  // Range validation: 90.0°F to 110.0°F
+  const isInRange = isValidNumber && valueInF >= 90.0 && valueInF <= 110.0;
+  const isCriticalFever = isValidNumber && valueInF >= 104.0;
+
+  // Previous reading check
+  const prevReading = detail?.readings?.find((r) => !r.isCorrection);
+  const tempDiff = prevReading ? Math.abs(valueInF - prevReading.valueF) : 0;
+  const isUnusualChange = prevReading ? tempDiff > 3.0 : false;
+
+  // Today reading info if already recorded
+  const todayReading = detail?.readings?.find((r) => !r.isCorrection);
+  const recordedByNurse =
+    todayReading && typeof todayReading.recordedBy === 'object' && todayReading.recordedBy
+      ? todayReading.recordedBy.name
+      : 'Nurse';
+  const recordedTime = todayReading
+    ? new Date(todayReading.recordedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : '';
+
+  // Can save check
+  const canSave =
+    isValidNumber &&
+    isInRange &&
+    (!isCorrection || correctionReason.trim().length > 0) &&
+    (!isUnusualChange || confirmUnusualChange);
+
   // Mutation to record temperature
   const recordMutation = useMutation({
     mutationFn: async () => {
-      if (!isValidNumber) {
-        throw new Error('Please enter a valid numeric temperature');
+      if (!isInRange) {
+        throw new Error('Temperature must be between 90.0°F and 110.0°F');
+      }
+      if (isCorrection && !correctionReason.trim()) {
+        throw new Error('A correction reason is mandatory');
       }
       return recordTemperatureApi(patient._id, {
         valueF: Math.round(valueInF * 10) / 10,
         isCorrection: isCorrection,
-        correctionReason: isCorrection ? correctionReason || 'Bedside correction' : undefined,
+        correctionReason: isCorrection ? correctionReason.trim() : undefined,
       });
     },
     onSuccess: () => {
@@ -62,6 +101,7 @@ export const RecordTempModal: React.FC<RecordTempModalProps> = ({ patient, onClo
       queryClient.invalidateQueries({ queryKey: ['patients'] });
       queryClient.invalidateQueries({ queryKey: ['patientDetail', patient._id] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
       onSuccess();
       onClose();
     },
@@ -134,11 +174,43 @@ export const RecordTempModal: React.FC<RecordTempModalProps> = ({ patient, onClo
             <span className="text-[11px] text-slate-400">Bedside Round</span>
           </div>
 
+          {/* Already Recorded Today Notice & Correction Reason */}
+          {patient.todayTempDone && (
+            <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-bold flex items-center gap-1.5 text-amber-900">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                  Already recorded today at {recordedTime} by {recordedByNurse}
+                </span>
+                <span className="text-[10px] font-bold uppercase bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded shrink-0">
+                  Correction Mode
+                </span>
+              </div>
+              <p className="text-[11px] text-amber-800">
+                A primary reading already exists. To submit a revised temperature, a mandatory reason is required:
+              </p>
+              <textarea
+                required
+                rows={2}
+                id="correction-reason-input"
+                placeholder="Mandatory reason for correction (e.g., patient was drinking cold water, re-measured with tympanic thermometer)..."
+                value={correctionReason}
+                onChange={(e) => setCorrectionReason(e.target.value)}
+                className="w-full px-3 py-2 text-xs bg-white border border-amber-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-amber-400 text-slate-900"
+              />
+            </div>
+          )}
+
           {/* Large Numeric Input Section */}
           <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-              Body Temperature (°{unit})
-            </label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                Body Temperature (°{unit})
+              </label>
+              <span className="text-[11px] text-slate-400 font-semibold">
+                Range: {unit === 'F' ? '90.0°F – 110.0°F' : '32.2°C – 43.3°C'}
+              </span>
+            </div>
 
             <div className="relative flex items-center">
               <div className="absolute left-4 text-slate-400">
@@ -147,8 +219,8 @@ export const RecordTempModal: React.FC<RecordTempModalProps> = ({ patient, onClo
               <input
                 type="number"
                 step="0.1"
-                min={unit === 'F' ? 90 : 32}
-                max={unit === 'F' ? 110 : 43}
+                min={unit === 'F' ? 90 : 32.2}
+                max={unit === 'F' ? 110 : 43.3}
                 id="temperature-input"
                 autoFocus
                 value={inputValue}
@@ -157,7 +229,9 @@ export const RecordTempModal: React.FC<RecordTempModalProps> = ({ patient, onClo
                   setErrorMessage(null);
                 }}
                 className={`w-full pl-14 pr-16 py-3.5 text-3xl font-extrabold rounded-xl border text-center transition-all focus:outline-hidden ${
-                  willBeFever
+                  !isInRange
+                    ? 'border-rose-400 bg-rose-50 text-rose-800 focus:ring-3 focus:ring-rose-200'
+                    : willBeFever
                     ? 'border-rose-400 bg-rose-50/30 text-rose-700 focus:ring-3 focus:ring-rose-200'
                     : 'border-slate-300 bg-white text-slate-900 focus:border-sky-500 focus:ring-3 focus:ring-sky-200'
                 }`}
@@ -167,6 +241,14 @@ export const RecordTempModal: React.FC<RecordTempModalProps> = ({ patient, onClo
                 °{unit}
               </span>
             </div>
+
+            {/* Range error if out of bounds */}
+            {!isInRange && isValidNumber && (
+              <div className="mt-2 text-xs font-bold text-rose-600 flex items-center gap-1.5">
+                <AlertOctagon className="w-4 h-4 shrink-0" />
+                <span>Invalid temperature range! Must be between 90.0°F and 110.0°F (32.2°C to 43.3°C).</span>
+              </div>
+            )}
 
             {/* Quick Adjustment Controls (Mobile-friendly) */}
             <div className="flex items-center justify-between mt-2 gap-2">
@@ -210,14 +292,14 @@ export const RecordTempModal: React.FC<RecordTempModalProps> = ({ patient, onClo
                       onClick={() => handlePreset(98.6)}
                       className="px-2 py-1 text-[11px] font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-md border border-emerald-200 transition cursor-pointer"
                     >
-                      98.6° (Normal)
+                      98.6°
                     </button>
                     <button
                       type="button"
                       onClick={() => handlePreset(100.4)}
                       className="px-2 py-1 text-[11px] font-semibold bg-rose-50 text-rose-700 hover:bg-rose-100 rounded-md border border-rose-200 transition cursor-pointer"
                     >
-                      100.4° (Fever)
+                      100.4°
                     </button>
                   </>
                 ) : (
@@ -227,14 +309,14 @@ export const RecordTempModal: React.FC<RecordTempModalProps> = ({ patient, onClo
                       onClick={() => handlePreset(37.0)}
                       className="px-2 py-1 text-[11px] font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-md border border-emerald-200 transition cursor-pointer"
                     >
-                      37.0° (Normal)
+                      37.0°
                     </button>
                     <button
                       type="button"
                       onClick={() => handlePreset(38.0)}
                       className="px-2 py-1 text-[11px] font-semibold bg-rose-50 text-rose-700 hover:bg-rose-100 rounded-md border border-rose-200 transition cursor-pointer"
                     >
-                      38.0° (Fever)
+                      38.0°
                     </button>
                   </>
                 )}
@@ -242,8 +324,43 @@ export const RecordTempModal: React.FC<RecordTempModalProps> = ({ patient, onClo
             </div>
           </div>
 
-          {/* Fever / Normal Live Status Banner */}
-          {isValidNumber && (
+          {/* Critical Fever Alert Banner (>= 104°F) */}
+          {isCriticalFever && (
+            <div className="p-3.5 rounded-xl bg-rose-600 text-white shadow-sm flex items-start gap-2.5 text-xs font-bold animate-pulse">
+              <AlertOctagon className="w-5 h-5 shrink-0 mt-0.5" />
+              <div>
+                <span>Critical fever, notify doctor immediately (≥104.0°F / 40.0°C).</span>
+                <p className="text-[11px] text-rose-100 font-normal mt-0.5">
+                  An urgent high-priority notification will be transmitted to all on-duty doctors immediately.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Unusual Change Warning (> 3°F change) */}
+          {isUnusualChange && !isCriticalFever && (
+            <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs space-y-2">
+              <div className="flex items-start gap-2 font-bold">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <span>
+                  Unusual change of {tempDiff.toFixed(1)}°F from previous reading ({prevReading?.valueF}°F), please re-check
+                </span>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer font-semibold text-amber-950 pt-1">
+                <input
+                  type="checkbox"
+                  id="confirm-unusual-change-checkbox"
+                  checked={confirmUnusualChange}
+                  onChange={(e) => setConfirmUnusualChange(e.target.checked)}
+                  className="w-4 h-4 text-sky-600 rounded"
+                />
+                <span>I have re-checked the thermometer and confirm this reading</span>
+              </label>
+            </div>
+          )}
+
+          {/* Live Status Banner */}
+          {isValidNumber && isInRange && !isCriticalFever && !isUnusualChange && (
             <div
               className={`p-3 rounded-xl flex items-start gap-2.5 text-xs font-medium border ${
                 willBeFever
@@ -255,9 +372,9 @@ export const RecordTempModal: React.FC<RecordTempModalProps> = ({ patient, onClo
                 <>
                   <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                   <div>
-                    <span className="font-bold">Fever threshold reached (≥ {unit === 'F' ? '100.4°F' : '38.0°C'}).</span>
+                    <span className="font-bold">Fever detected (≥ {unit === 'F' ? '100.4°F' : '38.0°C'}).</span>
                     <p className="text-[11px] text-rose-700 mt-0.5">
-                      Fever-free streak will reset to 0 days. Doctor will be alerted.
+                      Fever-free streak will reset to 0 days. Any pending discharge recommendation will be revoked.
                     </p>
                   </div>
                 </>
@@ -267,7 +384,7 @@ export const RecordTempModal: React.FC<RecordTempModalProps> = ({ patient, onClo
                   <div>
                     <span className="font-bold">Normal reading (&lt; {unit === 'F' ? '100.4°F' : '38.0°C'}).</span>
                     <p className="text-[11px] text-emerald-700 mt-0.5">
-                      Counts toward 3-day recovery streak (streak will advance).
+                      Counts toward 3-day recovery streak.
                     </p>
                   </div>
                 </>
@@ -283,31 +400,6 @@ export const RecordTempModal: React.FC<RecordTempModalProps> = ({ patient, onClo
               <Sparkline readings={detail?.readings || []} />
             )}
           </div>
-
-          {/* Correction Section if already recorded today */}
-          {patient.todayTempDone && (
-            <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-bold flex items-center gap-1.5">
-                  <AlertTriangle className="w-4 h-4 text-amber-600" />
-                  Temperature already recorded today
-                </span>
-                <span className="text-[10px] font-bold uppercase bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded">
-                  Correction Mode
-                </span>
-              </div>
-              <p className="text-[11px] text-amber-800">
-                Saving will record this as an audited correction reading for today.
-              </p>
-              <input
-                type="text"
-                placeholder="Reason for correction (e.g. re-test with digital thermometer)"
-                value={correctionReason}
-                onChange={(e) => setCorrectionReason(e.target.value)}
-                className="w-full px-3 py-1.5 text-xs bg-white border border-amber-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-amber-400 text-slate-800"
-              />
-            </div>
-          )}
 
           {/* Error Message */}
           {errorMessage && (
@@ -329,7 +421,7 @@ export const RecordTempModal: React.FC<RecordTempModalProps> = ({ patient, onClo
           <button
             type="button"
             id="save-temperature-btn"
-            disabled={recordMutation.isPending || !isValidNumber}
+            disabled={recordMutation.isPending || !canSave}
             onClick={() => recordMutation.mutate()}
             className="flex-[2] py-3.5 px-4 rounded-xl text-sm font-bold text-white bg-sky-600 hover:bg-sky-700 active:scale-98 shadow-md shadow-sky-600/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:pointer-events-none cursor-pointer"
           >

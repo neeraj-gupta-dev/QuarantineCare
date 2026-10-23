@@ -101,6 +101,9 @@ export const DoctorPage: React.FC = () => {
     return list;
   }, [activeTab, sortedReadyPatients, waitingPatients, visitedPatients, searchQuery]);
 
+  // 6 PM End of day check
+  const isPast6PM = new Date().getHours() >= 18;
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col pb-16">
       <Header />
@@ -134,6 +137,31 @@ export const DoctorPage: React.FC = () => {
             <span>Refresh</span>
           </button>
         </div>
+
+        {/* 6 PM End-of-Day Alert Banner */}
+        {isPast6PM && (readyPatients.length > 0 || waitingPatients.length > 0) && (
+          <div
+            id="end-of-day-doctor-banner"
+            className="p-4 rounded-2xl bg-amber-50 border border-amber-300 text-amber-900 shadow-xs flex items-start gap-3 animate-in fade-in duration-200"
+          >
+            <div className="w-9 h-9 rounded-xl bg-amber-200 text-amber-800 flex items-center justify-center shrink-0 mt-0.5">
+              <AlertTriangle className="w-5 h-5 text-amber-700" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-extrabold text-sm text-amber-900">
+                  End-of-Day Clinical Rounds Alert (Past 6:00 PM)
+                </h3>
+                <span className="text-[10px] font-black uppercase tracking-wider bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full">
+                  Action Required
+                </span>
+              </div>
+              <p className="text-xs text-amber-800 font-medium mt-0.5">
+                Evening clinical turnover: <strong>{readyPatients.length} patients</strong> remain unvisited by doctors, and <strong>{waitingPatients.length} patients</strong> are awaiting nurse temperature readings. All rounds must be concluded.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* 3 Tabs Header */}
         <div className="grid grid-cols-3 gap-2 bg-slate-200/60 p-1.5 rounded-2xl select-none">
@@ -372,9 +400,9 @@ export const DoctorPage: React.FC = () => {
                           <span>{formatTemp(patient.lastTemperature)}</span>
                         </div>
                       ) : (
-                        <div className="text-xs text-amber-600 font-semibold flex items-center gap-1 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                        <div className="text-xs text-amber-700 font-semibold flex items-center gap-1 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
                           <Clock className="w-3 h-3" />
-                          <span>Temp Pending</span>
+                          <span>Waiting for nurse's reading</span>
                         </div>
                       )}
 
@@ -386,7 +414,7 @@ export const DoctorPage: React.FC = () => {
                         ) : patient.todayTempDone ? (
                           <span className="text-indigo-600 font-bold">Ready for Visit</span>
                         ) : (
-                          'Waiting for Round'
+                          <span className="text-amber-600 font-medium">Waiting for nurse's reading</span>
                         )}
                       </div>
                     </div>

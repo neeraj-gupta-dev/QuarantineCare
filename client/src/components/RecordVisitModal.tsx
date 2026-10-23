@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { recordDoctorVisitApi } from '../services/api';
-import { Stethoscope, X, Loader2, Pill, FileText, CheckCircle2 } from 'lucide-react';
+import { Stethoscope, X, Loader2, Pill, FileText, CheckCircle2, Clock, AlertTriangle } from 'lucide-react';
 import type { Patient } from '../types';
 
 interface RecordVisitModalProps {
@@ -15,6 +15,9 @@ export const RecordVisitModal: React.FC<RecordVisitModalProps> = ({ patient, onC
   const [treatmentNotes, setTreatmentNotes] = useState('');
   const [medication, setMedication] = useState('');
   const [error, setError] = useState<string | null>(null);
+
+  const isFollowUp = !!patient.todayDoctorVisited;
+  const isTempMissing = !patient.todayTempDone;
 
   const visitMutation = useMutation({
     mutationFn: async () => {
@@ -53,7 +56,7 @@ export const RecordVisitModal: React.FC<RecordVisitModalProps> = ({ patient, onC
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="font-bold text-slate-900 text-base leading-tight">
-                  Record Doctor Visit
+                  {isFollowUp ? 'Append Follow-up Note' : 'Record Doctor Visit'}
                 </h3>
                 <span className="text-xs font-black text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-md">
                   Bed {patient.bedNumber ?? '—'}
@@ -75,9 +78,31 @@ export const RecordVisitModal: React.FC<RecordVisitModalProps> = ({ patient, onC
 
         {/* Form Body */}
         <div className="p-5 space-y-4 overflow-y-auto">
+          {/* Missing Temp Blocker Banner */}
+          {isTempMissing && (
+            <div className="p-3.5 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl text-xs flex items-start gap-2.5">
+              <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold block">Waiting for nurse's temperature reading</span>
+                Doctor visits cannot be recorded until a nurse measures today's morning temperature.
+              </div>
+            </div>
+          )}
+
+          {/* Follow-up Note Banner */}
+          {isFollowUp && (
+            <div className="p-3 bg-indigo-50 border border-indigo-200 text-indigo-900 rounded-xl text-xs flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-indigo-600 shrink-0" />
+              <div>
+                <span className="font-bold">Follow-up Clinical Visit:</span> Today's primary visit has already been completed. This note will be appended to today's clinical record.
+              </div>
+            </div>
+          )}
+
           {error && (
-            <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs font-semibold">
-              {error}
+            <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs font-semibold flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>{error}</span>
             </div>
           )}
 
@@ -92,12 +117,13 @@ export const RecordVisitModal: React.FC<RecordVisitModalProps> = ({ patient, onC
               rows={4}
               id="treatment-notes-input"
               value={treatmentNotes}
+              disabled={isTempMissing}
               onChange={(e) => {
                 setTreatmentNotes(e.target.value);
                 setError(null);
               }}
               placeholder="e.g., Lungs clear on auscultation, fever subsided, patient hydrated and alert. Continue current supportive therapy."
-              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition disabled:opacity-50 disabled:cursor-not-allowed"
             />
           </div>
 
@@ -111,9 +137,10 @@ export const RecordVisitModal: React.FC<RecordVisitModalProps> = ({ patient, onC
               type="text"
               id="medication-input"
               value={medication}
+              disabled={isTempMissing}
               onChange={(e) => setMedication(e.target.value)}
               placeholder="e.g., Paracetamol 500mg TDS, Azithromycin 500mg OD"
-              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition disabled:opacity-50 disabled:cursor-not-allowed"
             />
             <p className="text-[11px] text-slate-400 mt-1">
               Specify dosages and schedule. Leave blank if no change in medication.
@@ -124,7 +151,7 @@ export const RecordVisitModal: React.FC<RecordVisitModalProps> = ({ patient, onC
           <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 flex items-start gap-2 text-xs text-slate-600">
             <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
             <div>
-              <span className="font-bold text-slate-800">Rounds Compliance:</span> Recording this visit completes today's doctor round for Bed {patient.bedNumber}.
+              <span className="font-bold text-slate-800">Rounds Compliance:</span> {isFollowUp ? "Appending this note maintains complete daily documentation." : `Recording this visit completes today's doctor round for Bed ${patient.bedNumber}.`}
             </div>
           </div>
         </div>
@@ -141,7 +168,7 @@ export const RecordVisitModal: React.FC<RecordVisitModalProps> = ({ patient, onC
           <button
             type="button"
             id="submit-doctor-visit-btn"
-            disabled={visitMutation.isPending || !treatmentNotes.trim()}
+            disabled={visitMutation.isPending || isTempMissing || !treatmentNotes.trim()}
             onClick={() => visitMutation.mutate()}
             className="flex-[2] py-3.5 px-4 rounded-xl text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-98 shadow-md shadow-indigo-600/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:pointer-events-none cursor-pointer"
           >
@@ -149,6 +176,16 @@ export const RecordVisitModal: React.FC<RecordVisitModalProps> = ({ patient, onC
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
                 <span>Recording Visit...</span>
+              </>
+            ) : isTempMissing ? (
+              <>
+                <Clock className="w-4 h-4" />
+                <span>Waiting for Temp Reading</span>
+              </>
+            ) : isFollowUp ? (
+              <>
+                <Stethoscope className="w-4 h-4" />
+                <span>Append Follow-up Note</span>
               </>
             ) : (
               <>

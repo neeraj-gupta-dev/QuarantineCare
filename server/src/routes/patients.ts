@@ -221,21 +221,126 @@ router.post(
         return;
       }
 
-      if (!['ADMITTED', 'READY_FOR_DISCHARGE'].includes(patient.status)) {
+      // Rule: Discharged or deceased patients are read-only
+      if (['DISCHARGED_CURED', 'DECEASED'].includes(patient.status)) {
         res.status(400).json({
-          code: 'INVALID_STATUS',
-          message: `Cannot record temperature for a ${patient.status} patient`,
+          code: 'READ_ONLY',
+          message: `Cannot record temperature for a ${patient.status} patient. Patient record is read-only.`,
         });
         return;
       }
 
       const { valueF, isCorrection, correctionReason } = req.body;
-      if (valueF === undefined || valueF === null) {
-        res.status(400).json({ code: 'BAD_REQUEST', message: 'valueF is required' });
+      if (valueF === undefined || valueF === null || typeof valueF !== 'number' || isNaN(valueF)) {
+        res.status(400).json({ code: 'BAD_REQUEST', message: 'Numeric valueF is required' });
+        return;
+      }
+
+      // Rule: Valid range 90.0 to 110.0°F, otherwise 400
+      if (valueF < 90.0 || valueF > 110.0) {
+        res.status(400).json({
+          code: 'INVALID_RANGE',
+          message: 'Temperature must be between 90.0°F and 110.0°F',
+        });
         return;
       }
 
       const today = await getToday();
+
+      // Rule: If one exists, return 409 and show "Already recorded today at HH:MM by <nurse>"
+      const existingReading = await TemperatureReading.findOne({
+        patient: patient._id,
+        dayKey: today,
+        isCorrection: false,
+      }).populate('recordedBy', 'name');
+
+      if (existingReading && !isCorrection) {
+        const nurseName =
+          typeof existingReading.recordedBy === 'object' && existingReading.recordedBy
+            ? (existingReading.recordedBy as any).name
+            : 'Nurse';
+        const timeStr = new Date(existingReading.recordedAt).toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+
+        res.status(409).json({
+          code: 'DUPLICATE_READING',
+          message: `Already recorded today at ${timeStr} by ${nurseName}`,
+          existingReading: {
+            time: timeStr,
+            recordedBy: nurseName,
+            valueF: existingReading.valueF,
+          },
+        });
+        return;
+      }
+
+      // Rule: Allow "Add correction" with a mandatory reason
+      if (isCorrection && (!correctionReason || !correctionReason.trim())) {
+        res.status(400).json({
+          code: 'MANDATORY_CORRECTION_REASON',
+          message: 'A correction reason is mandatory when submitting a temperature correction',
+        });
+        return;
+      }
+
+      // Fetch previous reading to check for unusual change (> 3.0°F)
+      const prevReading = await TemperatureReading.findOne({
+        patient: patient._id,
+        isCorrection: false,
+      }).sort({ recordedAt: -1 });
+
+      const warnings: string[] = [];
+
+      // Rule: Warn if the change from previous reading is more than 3°F
+      if (prevReading && Math.abs(valueF - prevReading.valueF) > 3.0) {
+        warnings.push(
+          `Unusual change of ${Math.abs(valueF - prevReading.valueF).toFixed(1)}°F from previous reading (${prevReading.valueF}°F), please re-check`
+        );
+      }
+
+      // Rule: Warn at >= 104°F: "Critical fever, notify doctor immediately" and send notification to doctors
+      if (valueF >= 104.0) {
+        warnings.push('Critical fever, notify doctor immediately');
+        await Notification.create({
+          toRole: 'doctor',
+          patient: patient._id,
+          type: 'CRITICAL_FEVER',
+          message: `CRITICAL FEVER ALERT (≥104°F): ${patient.name} (Bed ${patient.bedNumber}) recorded ${valueF}°F. Notify doctor immediately.`,
+        });
+      }
+
+      // Rule: If a patient spikes a fever after being recommended, auto-revert to ADMITTED and notify doctor and admin
+      let autoReverted = false;
+      if (isFever(valueF) && patient.status === 'READY_FOR_DISCHARGE') {
+        patient.status = 'ADMITTED';
+        patient.dischargeRecommendedBy = null;
+        patient.dischargeRecommendedAt = null;
+        await patient.save();
+        autoReverted = true;
+
+        await Promise.all([
+          Notification.create({
+            toRole: 'doctor',
+            patient: patient._id,
+            type: 'DISCHARGE_REVOKED',
+            message: `${patient.name} (Bed ${patient.bedNumber}) spiked a fever (${valueF}°F). Discharge recommendation has been auto-reverted to ADMITTED.`,
+          }),
+          Notification.create({
+            toRole: 'admin',
+            patient: patient._id,
+            type: 'DISCHARGE_REVOKED',
+            message: `${patient.name} (Bed ${patient.bedNumber}) spiked a fever (${valueF}°F). Discharge recommendation has been auto-reverted to ADMITTED.`,
+          }),
+          AuditLog.create({
+            actor: req.user!.userId,
+            action: 'REVOKE_DISCHARGE_FEVER_SPIKE',
+            patient: patient._id,
+            details: { valueF, dayKey: today, newStatus: 'ADMITTED' },
+          }),
+        ]);
+      }
 
       const reading = await TemperatureReading.create({
         patient: patient._id,
@@ -244,23 +349,33 @@ router.post(
         recordedAt: new Date(),
         dayKey: today,
         isCorrection: isCorrection || false,
-        correctionReason: correctionReason || null,
+        correctionReason: isCorrection ? correctionReason.trim() : null,
       });
 
       await AuditLog.create({
         actor: req.user!.userId,
         action: isCorrection ? 'RECORD_TEMP_CORRECTION' : 'RECORD_TEMPERATURE',
         patient: patient._id,
-        details: { valueF, dayKey: today, isCorrection: !!isCorrection },
+        details: {
+          valueF,
+          dayKey: today,
+          isCorrection: !!isCorrection,
+          correctionReason,
+          autoReverted,
+          warnings,
+        },
       });
 
-      res.status(201).json(reading);
+      res.status(201).json({
+        ...reading.toObject(),
+        warnings: warnings.length > 0 ? warnings : undefined,
+        autoReverted,
+      });
     } catch (err: any) {
       if (err.code === 11000) {
         res.status(409).json({
-          code: 'DUPLICATE',
-          message:
-            'Temperature already recorded for this patient today. Use isCorrection=true for corrections.',
+          code: 'DUPLICATE_READING',
+          message: 'Temperature already recorded for this patient today. Use isCorrection=true for corrections.',
         });
         return;
       }
@@ -281,24 +396,77 @@ router.post(
         return;
       }
 
-      if (!['ADMITTED', 'READY_FOR_DISCHARGE'].includes(patient.status)) {
+      // Rule: Discharged or deceased patients are read-only
+      if (['DISCHARGED_CURED', 'DECEASED'].includes(patient.status)) {
         res.status(400).json({
-          code: 'INVALID_STATUS',
-          message: `Cannot visit a ${patient.status} patient`,
+          code: 'READ_ONLY',
+          message: `Cannot visit a ${patient.status} patient. Patient record is read-only.`,
         });
         return;
       }
 
       const today = await getToday();
+
+      // Rule: Blocked until today's temperature exists, with message "Waiting for nurse's temperature reading"
+      const todayReading = await TemperatureReading.findOne({
+        patient: patient._id,
+        dayKey: today,
+        isCorrection: false,
+      });
+
+      if (!todayReading) {
+        res.status(400).json({
+          code: 'WAITING_FOR_TEMPERATURE',
+          message: "Waiting for nurse's temperature reading",
+        });
+        return;
+      }
+
       const { treatmentNotes, medication } = req.body;
+
+      // Rule: Notes are mandatory
+      if (!treatmentNotes || !treatmentNotes.trim()) {
+        res.status(400).json({
+          code: 'MANDATORY_NOTES',
+          message: 'Treatment notes are mandatory',
+        });
+        return;
+      }
+
+      // Rule: One visit per patient per day (a follow-up note can be appended)
+      const existingVisit = await DoctorVisit.findOne({
+        patient: patient._id,
+        dayKey: today,
+      });
+
+      if (existingVisit) {
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        existingVisit.treatmentNotes = `${existingVisit.treatmentNotes}\n[Follow-up ${timeStr}]: ${treatmentNotes.trim()}`;
+        if (medication && medication.trim()) {
+          existingVisit.medication = existingVisit.medication
+            ? `${existingVisit.medication}; ${medication.trim()}`
+            : medication.trim();
+        }
+        await existingVisit.save();
+
+        await AuditLog.create({
+          actor: req.user!.userId,
+          action: 'DOCTOR_FOLLOW_UP_VISIT',
+          patient: patient._id,
+          details: { dayKey: today, treatmentNotes: treatmentNotes.trim(), medication },
+        });
+
+        res.json({ message: 'Follow-up visit note appended', visit: existingVisit });
+        return;
+      }
 
       const visit = await DoctorVisit.create({
         patient: patient._id,
         doctor: req.user!.userId,
         visitedAt: new Date(),
         dayKey: today,
-        treatmentNotes: treatmentNotes || '',
-        medication: medication || '',
+        treatmentNotes: treatmentNotes.trim(),
+        medication: medication ? medication.trim() : '',
       });
 
       await AuditLog.create({
@@ -309,14 +477,7 @@ router.post(
       });
 
       res.status(201).json(visit);
-    } catch (err: any) {
-      if (err.code === 11000) {
-        res.status(409).json({
-          code: 'DUPLICATE',
-          message: 'Doctor visit already recorded for this patient today',
-        });
-        return;
-      }
+    } catch (err) {
       next(err);
     }
   }
@@ -334,10 +495,36 @@ router.post(
         return;
       }
 
+      // Rule: Discharged or deceased patients are read-only
+      if (['DISCHARGED_CURED', 'DECEASED'].includes(patient.status)) {
+        res.status(400).json({
+          code: 'READ_ONLY',
+          message: `Cannot recommend discharge for a ${patient.status} patient`,
+        });
+        return;
+      }
+
       if (patient.status !== 'ADMITTED') {
         res.status(400).json({
           code: 'INVALID_STATUS',
           message: 'Only ADMITTED patients can be recommended for discharge',
+        });
+        return;
+      }
+
+      // Rule: Recommend Discharge is allowed only at a streak of 3 or more
+      const allReadings = await TemperatureReading.find({
+        patient: patient._id,
+        isCorrection: false,
+      })
+        .sort({ dayKey: -1 })
+        .lean();
+
+      const streak = calcFeverFreeStreak(allReadings.map((r) => ({ dayKey: r.dayKey, valueF: r.valueF })));
+      if (streak < 3) {
+        res.status(400).json({
+          code: 'INELIGIBLE_FOR_DISCHARGE',
+          message: `Recommend Discharge is allowed only at a streak of 3 or more fever-free days (current streak: ${streak} days)`,
         });
         return;
       }
@@ -359,7 +546,7 @@ router.post(
         actor: req.user!.userId,
         action: 'RECOMMEND_DISCHARGE',
         patient: patient._id,
-        details: { bedNumber: patient.bedNumber },
+        details: { bedNumber: patient.bedNumber, streak },
       });
 
       res.json({ message: 'Discharge recommended', patient });
@@ -381,6 +568,7 @@ router.post(
         return;
       }
 
+      // Rule: Admin only, and only for READY_FOR_DISCHARGE patients
       if (patient.status !== 'READY_FOR_DISCHARGE') {
         res.status(400).json({
           code: 'INVALID_STATUS',
@@ -427,17 +615,18 @@ router.post(
         return;
       }
 
+      // Rule: Discharged or deceased patients cannot be re-marked deceased
       if (!['ADMITTED', 'READY_FOR_DISCHARGE'].includes(patient.status)) {
         res.status(400).json({
-          code: 'INVALID_STATUS',
+          code: 'READ_ONLY',
           message: `Cannot mark a ${patient.status} patient as deceased`,
         });
         return;
       }
 
       const { cause } = req.body;
-      if (!cause) {
-        res.status(400).json({ code: 'BAD_REQUEST', message: 'cause is required' });
+      if (!cause || !cause.trim()) {
+        res.status(400).json({ code: 'MANDATORY_CAUSE', message: 'Cause of death is mandatory' });
         return;
       }
 
@@ -446,7 +635,7 @@ router.post(
       const updated = await Patient.findByIdAndUpdate(
         patient._id,
         {
-          $set: { status: 'DECEASED', deceasedAt: new Date(), deathCause: cause },
+          $set: { status: 'DECEASED', deceasedAt: new Date(), deathCause: cause.trim() },
           $unset: { bedNumber: 1 },
         },
         { new: true }
@@ -457,14 +646,14 @@ router.post(
         toRole: 'admin',
         patient: patient._id,
         type: 'PATIENT_DECEASED',
-        message: `${patient.name} (Bed ${freedBed}) has passed away. Cause: ${cause}`,
+        message: `${patient.name} (Bed ${freedBed}) has passed away. Cause: ${cause.trim()}`,
       });
 
       await AuditLog.create({
         actor: req.user!.userId,
         action: 'MARK_DECEASED',
         patient: patient._id,
-        details: { cause, freedBed },
+        details: { cause: cause.trim(), freedBed },
       });
 
       res.json({ message: 'Patient marked as deceased', patient: updated });
@@ -473,5 +662,6 @@ router.post(
     }
   }
 );
+
 
 export default router;
