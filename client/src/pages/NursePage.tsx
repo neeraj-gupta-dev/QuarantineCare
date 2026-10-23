@@ -36,7 +36,7 @@ export const NursePage: React.FC = () => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Query: fetch all currently active patients (ADMITTED + READY_FOR_DISCHARGE)
-  const { data, isLoading, isRefetching, refetch } = useQuery({
+  const { data, isLoading, isError, isRefetching, refetch } = useQuery({
     queryKey: ['patients'],
     queryFn: () => getPatientsApi(),
     refetchInterval: 15000, // Background poll every 15s
@@ -157,6 +157,12 @@ export const NursePage: React.FC = () => {
               <span>Next Day Demo</span>
             </button>
           </div>
+        </div>
+
+        {/* Onboarding Tip */}
+        <div className="bg-sky-50 border border-sky-200/80 px-4 py-2.5 rounded-xl text-xs text-sky-900 flex items-center gap-2 shadow-2xs">
+          <span className="font-bold shrink-0">💡 Nurse Workflow:</span>
+          <span>Record each patient's temperature once per day before doctor rounds. Patients with 3 consecutive fever-free days (&lt;100.4°F) qualify for doctor discharge recommendation.</span>
         </div>
 
         {/* 6 PM End-of-Day Alert Banner */}
@@ -333,7 +339,21 @@ export const NursePage: React.FC = () => {
 
         {/* Patient Cards List */}
         <div className="space-y-2.5">
-          {isLoading ? (
+          {isError ? (
+            <div className="text-center py-12 bg-white rounded-2xl border border-slate-200 p-6">
+              <AlertTriangle className="w-10 h-10 text-rose-500 mx-auto mb-2" />
+              <h3 className="font-bold text-slate-800 text-base">Unable to load patient rounds</h3>
+              <p className="text-xs text-slate-500 mt-1 mb-4">
+                An error occurred while fetching bedside round data from the server.
+              </p>
+              <button
+                onClick={() => refetch()}
+                className="px-4 py-2 bg-sky-600 text-white text-xs font-bold rounded-xl hover:bg-sky-700 transition cursor-pointer"
+              >
+                Retry
+              </button>
+            </div>
+          ) : isLoading ? (
             <div className="text-center py-12 bg-white rounded-2xl border border-slate-200">
               <Thermometer className="w-8 h-8 text-sky-500 animate-pulse mx-auto mb-2" />
               <p className="text-sm text-slate-500 font-medium">Loading bedside round list...</p>

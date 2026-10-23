@@ -24,6 +24,7 @@ export const AdminDashboardPage: React.FC = () => {
     data: dashboard,
     isLoading: isLoadingDash,
     isRefetching,
+    isError: isErrorDash,
     refetch: refetchDash,
   } = useQuery({
     queryKey: ['dashboard'],
@@ -41,6 +42,29 @@ export const AdminDashboardPage: React.FC = () => {
     refetchDash();
     refetchPatients();
   };
+
+  if (isErrorDash) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col">
+        <Header />
+        <div className="flex-1 flex items-center justify-center p-4">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 text-center max-w-md shadow-xs">
+            <AlertTriangle className="w-10 h-10 text-rose-500 mx-auto mb-2" />
+            <h2 className="text-base font-bold text-slate-900">Failed to load dashboard metrics</h2>
+            <p className="text-xs text-slate-500 mt-1 mb-4">
+              Unable to reach the server to fetch current facility statistics.
+            </p>
+            <button
+              onClick={refetchAll}
+              className="px-4 py-2 bg-amber-600 text-white text-xs font-bold rounded-xl hover:bg-amber-700 transition cursor-pointer"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (isLoadingDash || !dashboard) {
     return (
@@ -108,6 +132,12 @@ export const AdminDashboardPage: React.FC = () => {
               <span>Admit Patient</span>
             </Link>
           </div>
+        </div>
+
+        {/* Onboarding Tip */}
+        <div className="bg-amber-50 border border-amber-200/80 px-4 py-2.5 rounded-xl text-xs text-amber-950 flex items-center gap-2 shadow-2xs">
+          <span className="font-bold shrink-0">💡 Admin Workflow:</span>
+          <span>Supervise the 74-bed capacity, monitor clinical compliance benchmarks, and approve certified discharges from the queue to release beds for incoming patient admissions.</span>
         </div>
 
         {/* ─── CRITICAL METRICS CARDS GRID ─────────────────────────────────── */}

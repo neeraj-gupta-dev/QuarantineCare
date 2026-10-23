@@ -12,6 +12,7 @@ import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { DischargesPage } from './pages/DischargesPage';
 import { AdmitPatientPage } from './pages/AdmitPatientPage';
 import { PatientsDirectoryPage } from './pages/PatientsDirectoryPage';
+import { DemoDrawer } from './components/DemoDrawer';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -120,6 +121,7 @@ export default function App() {
               <Route path="/" element={<RootRedirect />} />
               <Route path="*" element={<RootRedirect />} />
             </Routes>
+            <DemoDrawer />
           </BrowserRouter>
         </UnitProvider>
       </AuthProvider>

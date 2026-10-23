@@ -11,6 +11,7 @@ import {
   X,
   Loader2,
   ArrowLeft,
+  AlertTriangle,
 } from 'lucide-react';
 import type { Patient } from '../types';
 
@@ -21,7 +22,7 @@ export const DischargesPage: React.FC = () => {
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['dischargesQueue'],
     queryFn: () => getPatientsApi({ status: 'READY_FOR_DISCHARGE' }),
     refetchInterval: 10000,
@@ -92,7 +93,21 @@ export const DischargesPage: React.FC = () => {
 
         {/* Queue List */}
         <div className="space-y-3">
-          {isLoading ? (
+          {isError ? (
+            <div className="text-center py-12 bg-white rounded-2xl border border-slate-200 p-6">
+              <AlertTriangle className="w-10 h-10 text-rose-500 mx-auto mb-2" />
+              <h3 className="font-bold text-slate-800 text-base">Unable to load discharge queue</h3>
+              <p className="text-xs text-slate-500 mt-1 mb-4">
+                An error occurred while fetching pending discharges from the server.
+              </p>
+              <button
+                onClick={() => refetch()}
+                className="px-4 py-2 bg-violet-600 text-white text-xs font-bold rounded-xl hover:bg-violet-700 transition cursor-pointer"
+              >
+                Retry
+              </button>
+            </div>
+          ) : isLoading ? (
             <div className="text-center py-12 bg-white rounded-2xl border border-slate-200">
               <Loader2 className="w-8 h-8 animate-spin text-violet-600 mx-auto mb-2" />
               <p className="text-sm text-slate-500 font-medium">Loading discharge queue...</p>

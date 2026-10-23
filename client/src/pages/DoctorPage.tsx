@@ -23,7 +23,7 @@ export const DoctorPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
 
   // Fetch all patients
-  const { data, isLoading, isRefetching, refetch } = useQuery({
+  const { data, isLoading, isError, isRefetching, refetch } = useQuery({
     queryKey: ['patients'],
     queryFn: () => getPatientsApi(),
     refetchInterval: 15000,
@@ -136,6 +136,12 @@ export const DoctorPage: React.FC = () => {
             <RefreshCw className={`w-3.5 h-3.5 ${isRefetching ? 'animate-spin text-indigo-600' : ''}`} />
             <span>Refresh</span>
           </button>
+        </div>
+
+        {/* Onboarding Tip */}
+        <div className="bg-indigo-50 border border-indigo-200/80 px-4 py-2.5 rounded-xl text-xs text-indigo-900 flex items-center gap-2 shadow-2xs">
+          <span className="font-bold shrink-0">💡 Doctor Workflow:</span>
+          <span>Conduct rounds on patients with taken temperatures, record mandatory clinical treatment notes, and recommend discharge once a patient reaches a 3-day fever-free streak.</span>
         </div>
 
         {/* 6 PM End-of-Day Alert Banner */}
@@ -278,7 +284,21 @@ export const DoctorPage: React.FC = () => {
 
         {/* Patient List */}
         <div className="space-y-2.5">
-          {isLoading ? (
+          {isError ? (
+            <div className="text-center py-12 bg-white rounded-2xl border border-slate-200 p-6">
+              <AlertTriangle className="w-10 h-10 text-rose-500 mx-auto mb-2" />
+              <h3 className="font-bold text-slate-800 text-base">Unable to load clinical rounds</h3>
+              <p className="text-xs text-slate-500 mt-1 mb-4">
+                An error occurred while fetching doctor rounds data.
+              </p>
+              <button
+                onClick={() => refetch()}
+                className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 transition cursor-pointer"
+              >
+                Retry
+              </button>
+            </div>
+          ) : isLoading ? (
             <div className="text-center py-12 bg-white rounded-2xl border border-slate-200">
               <Stethoscope className="w-8 h-8 text-indigo-500 animate-pulse mx-auto mb-2" />
               <p className="text-sm text-slate-500 font-medium">Loading clinical rounds...</p>

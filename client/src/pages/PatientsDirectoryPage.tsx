@@ -11,6 +11,7 @@ import {
   ChevronRight,
   RefreshCw,
   Loader2,
+  AlertTriangle,
 } from 'lucide-react';
 
 export const PatientsDirectoryPage: React.FC = () => {
@@ -20,7 +21,7 @@ export const PatientsDirectoryPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
 
-  const { data, isLoading, isRefetching, refetch } = useQuery({
+  const { data, isLoading, isError, isRefetching, refetch } = useQuery({
     queryKey: ['patientsDirectory'],
     queryFn: () => getPatientsApi(),
     refetchInterval: 15000,
@@ -152,7 +153,20 @@ export const PatientsDirectoryPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {isLoading ? (
+                {isError ? (
+                  <tr>
+                    <td colSpan={7} className="py-12 text-center text-slate-500">
+                      <AlertTriangle className="w-8 h-8 text-rose-500 mx-auto mb-2" />
+                      <p className="text-sm font-bold text-slate-800">Failed to load directory</p>
+                      <button
+                        onClick={() => refetch()}
+                        className="mt-3 px-3 py-1.5 bg-sky-600 text-white rounded-lg text-xs font-bold hover:bg-sky-700 transition cursor-pointer"
+                      >
+                        Retry
+                      </button>
+                    </td>
+                  </tr>
+                ) : isLoading ? (
                   <tr>
                     <td colSpan={7} className="py-12 text-center text-slate-400">
                       <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-sky-500" />

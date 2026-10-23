@@ -1,8 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { exec } from 'child_process';
-import path from 'path';
 import Setting from '../models/Setting';
 import { getToday } from '../helpers/getToday';
+import { seed } from '../scripts/seed';
 
 const router = Router();
 
@@ -32,23 +31,11 @@ router.post('/next-day', async (_req: Request, res: Response, next: NextFunction
 
 /**
  * POST /api/demo/reset
- * Re-run the seed script to reset the database to its initial demo state.
+ * Re-seed the database to its initial demo state.
  */
 router.post('/reset', async (_req: Request, res: Response, next: NextFunction) => {
   try {
-    const serverRoot = path.resolve(__dirname, '../..');
-
-    await new Promise<string>((resolve, reject) => {
-      exec(
-        'npx tsx src/scripts/seed.ts',
-        { cwd: serverRoot, timeout: 60000 },
-        (error, stdout, stderr) => {
-          if (error) return reject(error);
-          resolve(stdout);
-        }
-      );
-    });
-
+    await seed(false);
     res.json({ message: 'Database reset and re-seeded successfully' });
   } catch (err) {
     next(err);

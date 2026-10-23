@@ -197,10 +197,12 @@ function generateDischargedTemps(days: string[]): { dayKey: string; valueF: numb
 
 // ─── Main seed function ──────────────────────────────────────────────────────
 
-async function seed() {
+export async function seed(disconnectWhenDone = true) {
   console.log('🌱 Starting QuarantineCare seed...\n');
 
-  await connectDB();
+  if (mongoose.connection.readyState !== 1) {
+    await connectDB();
+  }
 
   // Drop the entire database for a fully clean slate (removes all stale indexes)
   console.log('🗑️  Dropping database...');
@@ -499,11 +501,16 @@ async function seed() {
   console.log(`📈 Mortality rate:         ${((deceasedCount / totalPatients) * 100).toFixed(1)}%`);
   console.log('='.repeat(50));
 
-  await disconnectDB();
-  console.log('\n✅ Done!');
+  if (disconnectWhenDone) {
+    await disconnectDB();
+    console.log('\n✅ Done!');
+  }
 }
 
-seed().catch((err) => {
-  console.error('❌ Seed failed:', err);
-  process.exit(1);
-});
+// Only auto-run when invoked directly as a CLI script
+if (process.argv[1]?.includes('seed')) {
+  seed(true).catch((err) => {
+    console.error('❌ Seed failed:', err);
+    process.exit(1);
+  });
+}
