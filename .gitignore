@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Build outputs
+dist/
+build/
+
+# Logs
+*.log
+logs/
+
+# Agent & editor folders
+.gemini/
+.agents/
+.vscode/
+.idea/
+.DS_Store
